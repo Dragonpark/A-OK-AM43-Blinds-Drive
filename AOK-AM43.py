@@ -113,19 +113,19 @@ def ScanForBTLEDevices():
     devices = scanner.scan()
 
     bAllDevicesFound = True
-    for AM43BlindsDevice in config['AM43_BLE_Devices']:
-        AM43BlindsDeviceMacAddress = config.get('AM43_BLE_Devices', AM43BlindsDevice)  # Read BLE MAC from ini file
+    for blind in config['AM43_BLE_Devices']:
+        blindMAC = config.get('AM43_BLE_Devices', blind)  # Read BLE MAC from ini file
         
         bFound = False
         for dev in devices:
-            if (AM43BlindsDeviceMacAddress == dev.addr):
-                print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " Found " + AM43BlindsDeviceMacAddress, flush=True)
+            if (blindMAC == dev.addr):
+                print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " Found " + blindMAC, flush=True)
                 bFound = True
                 break
             #else: 
                 #bFound = False
         if bFound == False:
-            print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " " + AM43BlindsDeviceMacAddress + " not found on BTLE network!", flush=True)
+            print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " " + blindMAC + " not found on BTLE network!", flush=True)
             bAllDevicesFound = False
         
     if (bAllDevicesFound == True):
@@ -138,13 +138,13 @@ def ScanForBTLEDevices():
 
 
 @retry(stop_max_attempt_number=10,wait_fixed=2000)
-def ConnectBTLEDevice(AM43BlindsDeviceMacAddress,AM43BlindsDevice):        
+def ConnectBTLEDevice(blindMAC,blind):        
     try:
-        print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " Connecting to " + AM43BlindsDeviceMacAddress + ", " + AM43BlindsDevice.capitalize() + "...", flush=True)
-        dev = btle.Peripheral(AM43BlindsDeviceMacAddress)
+        print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " Connecting to " + blindMAC + ", " + blind.capitalize() + "...", flush=True)
+        dev = btle.Peripheral(blindMAC)
         return dev
     except:
-        raise ValueError(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " Cannot connect to " + AM43BlindsDeviceMacAddress + " trying again....")
+        raise ValueError(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " Cannot connect to " + blindMAC + " trying again....")
 
         
 @app.route("/")
@@ -157,7 +157,10 @@ def hello():
 def am43action(action,grp=None,dev=None):
     #Variables#
     ResultDict = {}
-   
+    if (request.method == 'PUT' and action == 'getStatus') or
+       (request.method == 'GET' and action != 'getStatus'):
+        return f'Method { request.method } incorrect for action { action }
+
     #Code#
     # Scan for BTLE devices
     try:
@@ -183,13 +186,13 @@ def am43action(action,grp=None,dev=None):
             bSuccess = False
 
             try:
-                dev = ConnectBTLEDevice(AM43BlindsDeviceMacAddress,AM43BlindsDevice)
+                dev = ConnectBTLEDevice(blindMAC,blind)
             except:
-                print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ERROR, Cannot connect to " + AM43BlindsDeviceMacAddress, flush=True)
+                print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ERROR, Cannot connect to " + blindMAC, flush=True)
                 print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " Please check any open connections to the blinds motor and close them, the Blinds Engine App perhaps?", flush=True)
                 continue
 
-            print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " --> Connected to " + dev.addr + ", " + AM43BlindsDevice.capitalize(), flush=True)
+            print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " --> Connected to " + dev.addr + ", " + blind.capitalize(), flush=True)
 
             BlindsControlService = dev.getServiceByUUID("fe50")
             if (BlindsControlService):
@@ -206,11 +209,11 @@ def am43action(action,grp=None,dev=None):
                             bSuccess = write_message(BlindsControlServiceCharacteristic, dev, IdStop, [0xcc], False)
 
                         if (bSuccess):
-                            print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> Writing " + BlindsAction + " to " + AM43BlindsDevice.capitalize()  + " was succesfull!", flush=True)
+                            print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> Writing " + BlindsAction + " to " + blind.capitalize()  + " was succesfull!", flush=True)
                         else:
-                            print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> Writing to " + AM43BlindsDevice.capitalize()  + " FAILED", flush=True)
+                            print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> Writing to " + blind.capitalize()  + " FAILED", flush=True)
 
-                        ResultDict.update({AM43BlindsDevice.capitalize(): [{"command":BlindsAction, "bSuccess":bSuccess, "macaddr":AM43BlindsDeviceMacAddress}]})
+                        ResultDict.update({blind.capitalize(): [{"command":BlindsAction, "bSuccess":bSuccess, "macaddr":blind}]})
 
                     elif (BlindsAction == "CheckStatus"):
                         if BlindsControlServiceCharacteristic.supportsRead():
@@ -226,7 +229,7 @@ def am43action(action,grp=None,dev=None):
                             print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> Battery level: " + str(BatteryPct) + "%, " +
                                 "Blinds position: " + str(PositionPct) + "%, " +
                                 "Light sensor level: " + str(LightPct) + "%", flush=True)
-                            ResultDict.update({AM43BlindsDevice.capitalize(): [{"battery":BatteryPct, "position":PositionPct, "light":LightPct, "macaddr":AM43BlindsDeviceMacAddress}]})
+                            ResultDict.update({blind.capitalize(): [{"battery":BatteryPct, "position":PositionPct, "light":LightPct, "macaddr":blindMAC}]})
 
                             # Reset variables
                             BatteryPct = None
