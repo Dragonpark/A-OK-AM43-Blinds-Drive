@@ -172,7 +172,7 @@ def AM43BlindsAction(BlindsAction,DeviceGroup=None):
         DeviceGroup = "AM43_BLE_Devices"
 
     for AM43BlindsDevice in config[DeviceGroup]:
-        AM43BlindsDeviceMacAddress = config.get('AM43_BLE_Devices', AM43BlindsDevice)  # Read BLE MAC from ini file
+        AM43BlindsDeviceMacAddress = config.get(DeviceGroup, AM43BlindsDevice)  # Read BLE MAC from ini file
         # Reset variables
         bSuccess = False
 
