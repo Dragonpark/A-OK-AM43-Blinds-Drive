@@ -11,14 +11,14 @@
 # Added percentage for positioning blinds, optimalization on code
 # Added support for multiple Rooms/DeviceGroups
 
-#curl -i http://localhost:5000/AM43BlindsAction/<Action>  --> For the default setup
-#curl -i http://localhost:5000/AM43BlindsAction/<Action>/<DeviceGroup>  --> For the devicegroup setup you can specify in the ini file
+#curl -i http://localhost:5000/am43/<Action>  --> For the default setup
+#curl -i http://localhost:5000/am43/<Action>/<DeviceGroup>  --> For the devicegroup setup you can specify in the ini file
 
 #<Action> options:
 # <number 0-100>    --> Set blinds to position wanted
 # Open              --> Opening blinds
 # Close             --> Closing blinds
-# CheckStatus       --> Get battery status, current position and light in %
+# getStatus       --> Get battery status, current position and light in %
 
 from bluepy import btle
 import configparser
@@ -151,12 +151,13 @@ def ConnectBTLEDevice(AM43BlindsDeviceMacAddress,AM43BlindsDevice):
 def hello():
     return "A-OK AM43 BLE Smart Blinds Drive Service\n\n"
 
-@app.route("/AM43BlindsAction/<BlindsAction>",methods=['GET'])    ##curl -i http://localhost:5000/AM43BlindsAction/<Action>
-@app.route("/AM43BlindsAction/<BlindsAction>/<DeviceGroup>",methods=['GET'])    ##curl -i http://localhost:5000/AM43BlindsAction/<Action>/<DeviceGroup> for controlling multiple devicegroups in one ini file
-def AM43BlindsAction(BlindsAction,DeviceGroup=None):
+@app.route("/am43/<action>",methods=['GET','PUT'])       ##curl -i http://localhost:5000/am43/<action>        Send specified action to all devices
+@app.route("/am43/<action>/<dev>",methods=['GET','PUT']) ##curl -i http://localhost:5000/am43/<action>/<dev>  Send specified action to an individual device
+@app.route("/am43/<action>/<grp>",methods=['GET','PUT']) ##curl -i http://localhost:5000/am43/<action>/<grp>  Send specified action to all devices in a group
+def am43action(action,grp=None,dev=None):
     #Variables#
     ResultDict = {}
-    
+   
     #Code#
     # Scan for BTLE devices
     try:
@@ -168,77 +169,82 @@ def AM43BlindsAction(BlindsAction,DeviceGroup=None):
         pass
         #return "ERROR SCANNING FOR ALL BTLE Devices\n"
     
-    if (not DeviceGroup):
-        DeviceGroup = "AM43_BLE_Devices"
+    # Set group list
+    if grp:
+        grps = [grp]
+    else:
+        grps = config.sections()
+    
+    # Loop through groups and devices
+    for grp in grps:
+        for blind in config[grp]:
+            blindMAC = config.get(grp,blind)
+            # Reset variables
+            bSuccess = False
 
-    for AM43BlindsDevice in config[DeviceGroup]:
-        AM43BlindsDeviceMacAddress = config.get(DeviceGroup, AM43BlindsDevice)  # Read BLE MAC from ini file
-        # Reset variables
-        bSuccess = False
+            try:
+                dev = ConnectBTLEDevice(AM43BlindsDeviceMacAddress,AM43BlindsDevice)
+            except:
+                print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ERROR, Cannot connect to " + AM43BlindsDeviceMacAddress, flush=True)
+                print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " Please check any open connections to the blinds motor and close them, the Blinds Engine App perhaps?", flush=True)
+                continue
 
-        try:
-            dev = ConnectBTLEDevice(AM43BlindsDeviceMacAddress,AM43BlindsDevice)
-        except:
-            print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ERROR, Cannot connect to " + AM43BlindsDeviceMacAddress, flush=True)
-            print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " Please check any open connections to the blinds motor and close them, the Blinds Engine App perhaps?", flush=True)
-            continue
-        
-        print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " --> Connected to " + dev.addr + ", " + AM43BlindsDevice.capitalize(), flush=True)
+            print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " --> Connected to " + dev.addr + ", " + AM43BlindsDevice.capitalize(), flush=True)
 
-        BlindsControlService = dev.getServiceByUUID("fe50")
-        if (BlindsControlService):
-            BlindsControlServiceCharacteristic = BlindsControlService.getCharacteristics("fe51")[0]
-            if (BlindsControlServiceCharacteristic):
-                if (BlindsAction == "Open" or BlindsAction == "Close" or BlindsAction == "Stop" or BlindsAction.isdigit()):
-                    if (BlindsAction == "Open"):
-                        bSuccess = write_message(BlindsControlServiceCharacteristic, dev, IdMove, [0], False)
-                    elif (BlindsAction == "Close"):
-                        bSuccess = write_message(BlindsControlServiceCharacteristic, dev, IdMove, [100], False)
-                    elif (BlindsAction.isdigit()):
-                        bSuccess = write_message(BlindsControlServiceCharacteristic, dev, IdMove, [int(BlindsAction)], False)
-                    elif (BlindsAction == "Stop"):
-                        bSuccess = write_message(BlindsControlServiceCharacteristic, dev, IdStop, [0xcc], False)
-                    
-                    if (bSuccess):
-                        print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> Writing " + BlindsAction + " to " + AM43BlindsDevice.capitalize()  + " was succesfull!", flush=True)
+            BlindsControlService = dev.getServiceByUUID("fe50")
+            if (BlindsControlService):
+                BlindsControlServiceCharacteristic = BlindsControlService.getCharacteristics("fe51")[0]
+                if (BlindsControlServiceCharacteristic):
+                    if (BlindsAction == "Open" or BlindsAction == "Close" or BlindsAction == "Stop" or BlindsAction.isdigit()):
+                        if (BlindsAction == "Open"):
+                            bSuccess = write_message(BlindsControlServiceCharacteristic, dev, IdMove, [0], False)
+                        elif (BlindsAction == "Close"):
+                            bSuccess = write_message(BlindsControlServiceCharacteristic, dev, IdMove, [100], False)
+                        elif (BlindsAction.isdigit()):
+                            bSuccess = write_message(BlindsControlServiceCharacteristic, dev, IdMove, [int(BlindsAction)], False)
+                        elif (BlindsAction == "Stop"):
+                            bSuccess = write_message(BlindsControlServiceCharacteristic, dev, IdStop, [0xcc], False)
+
+                        if (bSuccess):
+                            print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> Writing " + BlindsAction + " to " + AM43BlindsDevice.capitalize()  + " was succesfull!", flush=True)
+                        else:
+                            print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> Writing to " + AM43BlindsDevice.capitalize()  + " FAILED", flush=True)
+
+                        ResultDict.update({AM43BlindsDevice.capitalize(): [{"command":BlindsAction, "bSuccess":bSuccess, "macaddr":AM43BlindsDeviceMacAddress}]})
+
+                    elif (BlindsAction == "CheckStatus"):
+                        if BlindsControlServiceCharacteristic.supportsRead():
+                            bSuccess = dev.setDelegate(AM43Delegate())
+                            bSuccess = write_message(BlindsControlServiceCharacteristic, dev, IdBattery, [0x01], True)
+                            bSuccess = write_message(BlindsControlServiceCharacteristic, dev, IdLight, [0x01], True)
+                            bSuccess = write_message(BlindsControlServiceCharacteristic, dev, IdPosition, [0x01], True)
+
+                            #retrieve global variables with current percentages
+                            global BatteryPct 
+                            global LightPct
+                            global PositionPct
+                            print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> Battery level: " + str(BatteryPct) + "%, " +
+                                "Blinds position: " + str(PositionPct) + "%, " +
+                                "Light sensor level: " + str(LightPct) + "%", flush=True)
+                            ResultDict.update({AM43BlindsDevice.capitalize(): [{"battery":BatteryPct, "position":PositionPct, "light":LightPct, "macaddr":AM43BlindsDeviceMacAddress}]})
+
+                            # Reset variables
+                            BatteryPct = None
+                            LightPct = None
+                            PositionPct = None
+
+                        else:
+                            print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> No reads allowed on characteristic!", flush=True)
+
                     else:
-                        print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> Writing to " + AM43BlindsDevice.capitalize()  + " FAILED", flush=True)
-                    
-                    ResultDict.update({AM43BlindsDevice.capitalize(): [{"command":BlindsAction, "bSuccess":bSuccess, "macaddr":AM43BlindsDeviceMacAddress}]})
-                
-                elif (BlindsAction == "CheckStatus"):
-                    if BlindsControlServiceCharacteristic.supportsRead():
-                        bSuccess = dev.setDelegate(AM43Delegate())
-                        bSuccess = write_message(BlindsControlServiceCharacteristic, dev, IdBattery, [0x01], True)
-                        bSuccess = write_message(BlindsControlServiceCharacteristic, dev, IdLight, [0x01], True)
-                        bSuccess = write_message(BlindsControlServiceCharacteristic, dev, IdPosition, [0x01], True)
-                        
-                        #retrieve global variables with current percentages
-                        global BatteryPct 
-                        global LightPct
-                        global PositionPct
-                        print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> Battery level: " + str(BatteryPct) + "%, " +
-                            "Blinds position: " + str(PositionPct) + "%, " +
-                            "Light sensor level: " + str(LightPct) + "%", flush=True)
-                        ResultDict.update({AM43BlindsDevice.capitalize(): [{"battery":BatteryPct, "position":PositionPct, "light":LightPct, "macaddr":AM43BlindsDeviceMacAddress}]})
-                        
-                        # Reset variables
-                        BatteryPct = None
-                        LightPct = None
-                        PositionPct = None
+                        print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " --> Unknown Blindsaction command: " + BlindsAction, flush=True)
+                        bSuccess = False
+                        #result = None
 
-                    else:
-                        print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> No reads allowed on characteristic!", flush=True)
-                
-                else:
-                    print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " --> Unknown Blindsaction command: " + BlindsAction, flush=True)
-                    bSuccess = False
-                    #result = None
-                
 
-                    
-        # Close connection to BLE device
-        dev.disconnect()
+
+            # Close connection to BLE device
+            dev.disconnect()
 
     if (bSuccess):
         ResultDict.update({"status":"OK"})
