@@ -1,18 +1,8 @@
 #!/usr/bin/env python3
 
-# To install libraries needed:
-# sudo pip3 install Flask, bluepy, retrying
-
-# Version 1.1 - Bas Bahlmann - The Netherlands
-# Added battery status, current position and amount of light through new CheckStatus command. Disabled the scanning function, seems to work reliable without it
-# Return values are in JSON format so you can interpret it easily
-
-# Version 1.2 - Bas Bahlmann - The Netherlands
-# Added percentage for positioning blinds, optimalization on code
-# Added support for multiple Rooms/DeviceGroups
-
-#curl -i http://localhost:5000/am43/<Action>  --> For the default setup
-#curl -i http://localhost:5000/am43/<Action>/<DeviceGroup>  --> For the devicegroup setup you can specify in the ini file
+#curl -i http://localhost:5000/am43/<action>               --> Send action to all devices in ini file
+#curl -i http://localhost:5000/am43/<action>/dev/<Device>  --> Send action to a specific device
+#curl -i http://localhost:5000/am43/<action>/grp/<Group>   --> Send action to all devices in a device group
 
 #<Action> options:
 # <number 0-100>    --> Set blinds to position wanted
@@ -153,6 +143,9 @@ def connectBLE(blindMAC,blind):
 def hello():
     return "A-OK AM43 BLE Smart Blinds Drive Service\n\n"
 
+def prnt_message(message):
+    print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " --> " + message, flush=True)
+
 @app.route("/am43/<action>",methods=['GET','PUT'])               ##curl -i http://localhost:5000/am43/<action>        Send specified action to all devices
 @app.route("/am43/<action>/device/<dev>",methods=['GET','PUT'])  ##curl -i http://localhost:5000/am43/<action>/<dev>  Send specified action to an individual device
 @app.route("/am43/<action>/group/<grp>",methods=['GET','PUT'])   ##curl -i http://localhost:5000/am43/<action>/<grp>  Send specified action to all devices in a group
@@ -162,14 +155,14 @@ def am43action(action,grp=None,dev=None):
     
     ## Setup ##
     # Verify specified action is supported or is digit between 0 and 100
-    if ((action in ACTIONS) or (action.isdigit() and 0 <= int(action) <= 100)):
-        ### ERROR FUNCTION ### print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " --> Unknown Blindsaction command: " + action, flush=True)
+    if (action in ACTIONS) or (action.isdigit() and 0 <= int(action) <= 100):
+        prnt_message(f"Unknown Blindsaction command: {action}")
         bSuccess = False
         return
     # Verify proper method was used
     if (request.method == 'PUT' and action == 'getStatus') or
        (request.method == 'GET' and action != 'getStatus'):
-        ### ERROR FUNCTION ### f'Method { request.method } incorrect for action { action }'
+        prnt_message(f"Method { request.method } incorrect for action { action }")
         bSuccess = False
         return
     # Identify groups
@@ -178,8 +171,9 @@ def am43action(action,grp=None,dev=None):
         if config.has_section(grp):
             grps = [grp]
         else:
-            ## CALL ERROR FUNCTION TO PRINT MESSAGE WHEN CREATED
-            return f'Config section { grp } not valid. Please recheck config file'
+            ### REPLACE WITH FILEPATH USED
+            prnt_message(f"Config section { grp } not valid. Please recheck config file")
+            return
     elif not dev:
         grps = config.sections()
     # Retrieve list of devices based on specified group
@@ -201,9 +195,8 @@ def am43action(action,grp=None,dev=None):
         #ScanForBTLEDevices()
         pass
     except:
-        #### CREATE ERROR function to print logs ###
-        print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ERROR SCANNING FOR ALL BTLE Devices, trying to " + action + " the blinds anyway....", flush=True)
-        print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " Please check any open connections to the blinds motor and close them, the Blinds Engine App perhaps?", flush=True)
+        prnt_message(f" ERROR SCANNING FOR ALL BTLE Devices, trying to {action} the blinds anyway....")
+        prnt_message(f" Please check any open connections to the blinds motor and close them, the Blinds Engine App perhaps?")
         pass
         #return "ERROR SCANNING FOR ALL BTLE Devices\n"
 
@@ -215,11 +208,11 @@ def am43action(action,grp=None,dev=None):
         try:
             dev = connectBLE(blindMAC,blind)
         except:
-            print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ERROR, Cannot connect to " + blindMAC, flush=True)
-            print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " Please check any open connections to the blinds motor and close them, the Blinds Engine App perhaps?", flush=True)
+            prnt_message(f" ERROR, Cannot connect to {blindMAC}")
+            prnt_message(f" Please check any open connections to the blinds motor and close them, the Blinds Engine App perhaps?")
             continue
 
-        print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " --> Connected to " + dev.addr + ", " + blind.capitalize(), flush=True)
+        prnt_message(f" --> Connected to {dev.addr} {blind.capitalize()}")
 
         blindsvc = dev.getServiceByUUID("fe50")
         if (blindsvc):
@@ -235,9 +228,9 @@ def am43action(action,grp=None,dev=None):
                     bSuccess = write_message(blindsvcChars, dev, IdMove, data, False)
                      
                     if (bSuccess):
-                        print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> Writing " + action + " to " + blind.capitalize()  + " was succesfull!", flush=True)
+                        prnt_message(f" ----> Writing {action} to {blind.capitalize()} was succesfull!")
                     else:
-                        print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> Writing to " + blind.capitalize()  + " FAILED", flush=True)
+                        prnt_message(f" ----> Writing to {blind.capitalize()} FAILED")
 
                     ResultDict.update({blind.capitalize(): [{"command":action, "bSuccess":bSuccess, "macaddr":blind}]})
 
@@ -252,9 +245,9 @@ def am43action(action,grp=None,dev=None):
                         global BatteryPct 
                         global LightPct
                         global PositionPct
-                        print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> Battery level: " + str(BatteryPct) + "%, " +
-                            "Blinds position: " + str(PositionPct) + "%, " +
-                            "Light sensor level: " + str(LightPct) + "%", flush=True)
+                        prnt_message(f" ----> Battery level: {str(BatteryPct)}%, " +
+                            "Blinds position: {str(PositionPct)}%, " +
+                            "Light sensor level: {str(LightPct)}%")
                         ResultDict.update({blind.capitalize(): [{"battery":BatteryPct, "position":PositionPct, "light":LightPct, "macaddr":blindMAC}]})
 
                         # Reset variables
@@ -263,10 +256,10 @@ def am43action(action,grp=None,dev=None):
                         PositionPct = None
 
                     else:
-                        print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " ----> No reads allowed on characteristic!", flush=True)
+                        prnt_message(f" ----> No reads allowed on characteristic!")
 
                 else:
-                    print(datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S") + " --> Unknown Blindsaction command: " + action, flush=True)
+                    prnt_message(f" --> Unknown Blindsaction command: {action}")
                     bSuccess = False
                     #result = None
 
